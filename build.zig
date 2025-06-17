@@ -10,13 +10,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const lib_temp = b.dependency("temp", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    const mod_temp = lib_temp.module("temp");
-    mod_ttlv.addImport("temp", mod_temp);
-
     const conduit_lib = b.dependency("conduit", .{
         .target = target,
         .optimize = optimize,

@@ -217,7 +217,6 @@ The library includes all official KMIP tags from versions 1.0 through 3.0.
 
 - Zig 0.14.1 or later
 - [conduit-z](https://github.com/byterix-labs/conduit-z) dependency (automatically managed)
-- [temp.zig](https://github.com/abhinav/temp.zig) dependency (automatically managed)
 
 ## Development
 
