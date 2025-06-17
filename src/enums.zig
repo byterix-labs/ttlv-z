@@ -1,21 +1,48 @@
-/// Tag value type
+//! TTLV enumeration definitions for tag types and value types.
+//!
+//! This module contains the standard KMIP (Key Management Interoperability Protocol)
+//! enumeration definitions used in TTLV encoding. It includes all value types that
+//! can be encoded in TTLV format and the complete set of KMIP tag definitions
+//! from versions 1.0 through 3.0.
+
+/// TTLV value type enumeration as defined by the KMIP specification.
+/// Each value corresponds to a specific data type that can be encoded in TTLV format.
 pub const ValueType = enum(u8) {
+    /// Nested structure containing other TTLV elements
     structure = 0x1,
+    /// 32-bit signed integer
     integer = 0x2,
+    /// 64-bit signed integer
     longInteger = 0x3,
+    /// 128-bit signed integer
     bigInteger = 0x4,
+    /// 32-bit enumeration value
     enumeration = 0x5,
+    /// Boolean value (encoded as 8 bytes)
     boolean = 0x06,
+    /// UTF-8 text string
     textString = 0x7,
+    /// Binary byte string
     byteString = 0x8,
+    /// Date/time timestamp
     dateTime = 0x9,
+    /// Time interval value
     interval = 0xA,
+    /// Extended date/time timestamp
     dateTimeExtended = 0xB,
+    /// Object identifier string
     identifier = 0xC,
+    /// Reference to another object
     reference = 0xD,
+    /// Named reference to another object
     nameReference = 0xE,
+    /// Empty/null value
     none,
 
+    /// Returns metadata information for this value type.
+    ///
+    /// Returns:
+    ///   ValueTypeMeta containing size and padding information for this type
     pub fn meta(self: @This()) ValueTypeMeta {
         return ValueTypeMeta[self];
     }
@@ -28,6 +55,8 @@ fn valueTypeMeta(comptime size: type, comptime padding: type) type {
     };
 }
 
+/// Metadata information for TTLV value types.
+/// Contains size and padding requirements for each value type during encoding/decoding.
 pub const ValueTypeMeta = union(ValueType) {
     structure: @TypeOf(.none),
     integer: valueTypeMeta(i32, u32),
@@ -46,7 +75,14 @@ pub const ValueTypeMeta = union(ValueType) {
     none: @TypeOf(.none),
 };
 
-/// Tag type
+/// KMIP tag type enumeration containing all standard KMIP tags.
+///
+/// This enum includes all official KMIP tags from versions 1.0 through 3.0 of the
+/// Key Management Interoperability Protocol specification. Each tag identifies
+/// a specific data element in KMIP messages.
+///
+/// Tags are organized by KMIP version and functionality area. Reserved tags
+/// are commented out to maintain the correct enum values while preventing usage.
 pub const TagType = enum(u24) {
     // KMIP 1.0
     activationDate = 0x420001,

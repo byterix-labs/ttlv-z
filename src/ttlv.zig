@@ -1,3 +1,18 @@
+//! TTLV (Tag-Type-Length-Value) encoding and decoding library for Zig.
+//!
+//! This module provides a flexible implementation of the TTLV protocol used in KMIP
+//! (Key Management Interoperability Protocol) and other binary serialization formats.
+//! TTLV is a binary encoding format where each value is preceded by a tag (identifier),
+//! type (data type), and length (size in bytes).
+//!
+//! Key features:
+//! - Support for all KMIP TTLV value types (structure, integer, string, etc.)
+//! - Generic tag system allowing custom tag enumerations
+//! - Efficient encoding/decoding with streaming support via conduit integration
+//! - Memory-safe with arena allocation for automatic cleanup
+//! - Path-based navigation for nested structures
+//! - Iterator and walker patterns for traversing complex data
+
 const std = @import("std");
 const testing = std.testing;
 const enums = @import("enums.zig");
@@ -14,16 +29,25 @@ const ConduitObject = @import("conduit").Object;
 const AnyReader = std.io.AnyReader;
 const countingReader = std.io.countingReader;
 
+/// Errors that can occur during TTLV decoding operations.
 pub const DecodeError = error{
+    /// The expected start byte was not found in the input stream
     MissingStartByte,
+    /// The TTLV type is not supported by this implementation
     UnsupportedType,
+    /// The tag value is not recognized or valid
     UnknownTag,
 };
 
+/// Configuration options for creating TTLV instances.
 pub const TtlvOptions = struct {
+    /// Optional allocator for memory management. If provided, enables arena allocation
+    /// for automatic cleanup of nested structures.
     allocator: ?std.mem.Allocator = null,
 };
 
+/// Calculates the number of padding bytes needed to align to 8-byte boundary.
+/// TTLV values must be padded to 8-byte alignment as per the specification.
 fn calculatePadding(len: usize) usize {
     const alignment = 8;
     const offset = len % alignment;
@@ -35,34 +59,63 @@ fn calculatePadding(len: usize) usize {
     return alignment - offset;
 }
 
+/// Returns the total length including padding bytes needed for 8-byte alignment.
 fn paddedLen(len: usize) usize {
     return len + calculatePadding(len);
 }
 
+/// Creates a TTLV type with custom tag enumeration.
+///
+/// This generic function allows you to create TTLV instances with your own
+/// tag enumeration type. The tag type must be an enum with underlying integer values.
+///
+/// Args:
+///   - T: The tag enumeration type to use for this TTLV instance
+///
+/// Returns:
+///   A TTLV type configured with the specified tag enumeration
 pub fn CustomTtlv(T: type) type {
     return struct {
         const Self = @This();
 
         pub const TagType = T;
 
+        /// TTLV value types corresponding to the KMIP specification.
+        /// Each variant holds the appropriate data type for that TTLV value type.
         pub const Value = union(ValueType) {
+            /// Nested structure containing other TTLV values
             structure: *std.ArrayListUnmanaged(*Self),
+            /// 32-bit signed integer
             integer: i32,
+            /// 64-bit signed integer
             longInteger: i64,
+            /// 128-bit signed integer
             bigInteger: i128,
+            /// 32-bit enumeration value
             enumeration: u32,
+            /// Boolean value (stored as 8 bytes in TTLV format)
             boolean: bool,
+            /// UTF-8 text string
             textString: []const u8,
+            /// Binary data stored in a conduit object for efficient streaming
             byteString: ConduitObject,
+            /// Date/time as 64-bit timestamp
             dateTime: u64,
+            /// Time interval as 32-bit value
             interval: u32,
+            /// Extended date/time as 64-bit timestamp
             dateTimeExtended: u64,
+            /// Object identifier string
             identifier: []const u8,
+            /// Reference to another object
             reference: []const u8,
+            /// Named reference to another object
             nameReference: []const u8,
+            /// Empty/null value
             none,
 
-            /// Length of the value in bytes
+            /// Returns the length of the value in bytes according to TTLV encoding rules.
+            /// For structures, this includes the total length of all nested elements.
             pub fn length(self: Value) usize {
                 return switch (self) {
                     .structure => blk: {
@@ -90,13 +143,23 @@ pub fn CustomTtlv(T: type) type {
                 };
             }
 
+            /// Creates a Value from an enumeration, converting it to the underlying integer.
+            ///
+            /// Args:
+            ///   - enum_value: Any enum value to convert to a TTLV enumeration
+            ///
+            /// Returns:
+            ///   A Value with the enumeration variant containing the enum's integer value
             pub fn initEnum(enum_value: anytype) Value {
                 return Value{ .enumeration = @intFromEnum(enum_value) };
             }
         };
 
+        /// The TTLV tag identifying this value
         tag: T,
+        /// The actual value data of this TTLV element
         value: Value,
+        /// Optional arena allocator for automatic memory management of nested structures
         arena: ?*ArenaAllocator = null,
 
         fn initBare(tag: T, options: TtlvOptions) Self {
@@ -113,7 +176,17 @@ pub fn CustomTtlv(T: type) type {
             };
         }
 
+        /// Creates a new TTLV instance with the specified tag and value.
+        ///
         /// You should only need to deinit the root Ttlv, as it will recursively deinit all children.
+        ///
+        /// Args:
+        ///   - tag: The tag identifier for this TTLV element
+        ///   - value: The value to store in this TTLV element
+        ///   - options: Configuration options including optional allocator
+        ///
+        /// Returns:
+        ///   A new TTLV instance
         pub fn init(tag: T, value: Value, options: TtlvOptions) Self {
             var ttlv = initBare(tag, options);
 
@@ -122,6 +195,17 @@ pub fn CustomTtlv(T: type) type {
             return ttlv;
         }
 
+        /// Creates a new TTLV structure that can contain child elements.
+        ///
+        /// Args:
+        ///   - allocator: The allocator to use for the structure's child list
+        ///   - tag: The tag identifier for this structure
+        ///
+        /// Returns:
+        ///   A new TTLV structure ready to accept child elements
+        ///
+        /// Errors:
+        ///   Returns an error if memory allocation fails
         pub fn structure(allocator: std.mem.Allocator, comptime tag: T) !Self {
             var ttlv = initBare(tag, .{
                 .allocator = allocator,
@@ -135,6 +219,14 @@ pub fn CustomTtlv(T: type) type {
             return ttlv;
         }
 
+        /// Creates a new TTLV text string value.
+        ///
+        /// Args:
+        ///   - tag: The tag identifier for this text string
+        ///   - value: The string content
+        ///
+        /// Returns:
+        ///   A new TTLV text string instance
         pub fn textString(comptime tag: T, value: []const u8) Self {
             return init(tag, .{ .textString = value }, .{});
         }
@@ -147,7 +239,16 @@ pub fn CustomTtlv(T: type) type {
             return null;
         }
 
+        /// Appends a child TTLV element to this structure.
+        ///
         /// Child Ttlv should be allocated with the same allocator as the parent.
+        /// This method can only be called on TTLV elements with structure values.
+        ///
+        /// Args:
+        ///   - child: The TTLV element to append as a child
+        ///
+        /// Errors:
+        ///   Returns an error if memory allocation fails or allocators don't match
         pub fn append(self: *Self, child: Self) !void {
             // make sure allocators are the same
             if (self.getAllocator()) |self_allocator| {
@@ -171,17 +272,46 @@ pub fn CustomTtlv(T: type) type {
             }
         }
 
+        /// Appends multiple child TTLV elements to this structure.
+        ///
+        /// Args:
+        ///   - children: Slice of TTLV elements to append as children
+        ///
+        /// Errors:
+        ///   Returns an error if any append operation fails
         pub fn appendSlice(self: *Self, children: []const Self) !void {
             for (children) |c| {
                 try self.append(c);
             }
         }
 
+        /// Appends a child to a structure found at the specified tag path.
+        ///
+        /// Args:
+        ///   - tag_path: Path specification to locate the target structure
+        ///   - child: The TTLV element to append
+        ///
+        /// Errors:
+        ///   Returns an error if the path is not found or append fails
         pub fn appendToPath(self: *Self, tag_path: anytype, child: Self) !void {
             var target = try self.path(tag_path);
             try target.append(child);
         }
 
+        /// Casts the TTLV value to the specified type.
+        ///
+        /// Supports casting integer types, enumerations, and other compatible types.
+        /// The casting follows Zig's type conversion rules with additional support
+        /// for TTLV-specific types like enumerations.
+        ///
+        /// Args:
+        ///   - As: The target type to cast to
+        ///
+        /// Returns:
+        ///   The value cast to the specified type
+        ///
+        /// Errors:
+        ///   Returns an error if the cast is not valid or supported
         pub fn castValue(self: Self, comptime As: type) !As {
             const type_info = @typeInfo(As);
 
@@ -202,6 +332,11 @@ pub fn CustomTtlv(T: type) type {
             }
         }
 
+        /// Cleans up all resources used by this TTLV element and its children.
+        ///
+        /// This method recursively deinitializes all child elements in structures
+        /// and frees any allocated memory. Only call this on the root TTLV element
+        /// as it will handle cleanup of the entire tree.
         pub fn deinit(self: *@This()) void {
             switch (self.value) {
                 .structure => {
@@ -278,10 +413,32 @@ pub fn CustomTtlv(T: type) type {
             return Value{ .structure = children };
         }
 
+        /// Decodes a TTLV element from a reader stream.
+        ///
+        /// Args:
+        ///   - allocator: The allocator to use for memory management
+        ///   - reader: The input stream to read TTLV data from
+        ///
+        /// Returns:
+        ///   A decoded TTLV instance
+        ///
+        /// Errors:
+        ///   Returns an error if decoding fails due to invalid data or memory allocation
         pub fn decode(allocator: std.mem.Allocator, reader: AnyReader) anyerror!Self {
             return try decodeInternal(allocator, reader);
         }
 
+        /// Decodes a TTLV element from a byte buffer.
+        ///
+        /// Args:
+        ///   - allocator: The allocator to use for memory management
+        ///   - buffer: The byte buffer containing TTLV data
+        ///
+        /// Returns:
+        ///   A decoded TTLV instance
+        ///
+        /// Errors:
+        ///   Returns an error if decoding fails due to invalid data or memory allocation
         pub fn decodeFromBuffer(allocator: std.mem.Allocator, buffer: []const u8) !Self {
             var stream = std.io.fixedBufferStream(buffer);
             return try decodeInternal(allocator, stream.reader().any());
@@ -367,6 +524,19 @@ pub fn CustomTtlv(T: type) type {
             try writer.writeInt(u8, @intFromEnum(value_type), .big);
         }
 
+        /// Encodes this TTLV element to a writer stream.
+        ///
+        /// Writes the complete TTLV binary representation including tag, type, length,
+        /// and value with proper padding according to the TTLV specification.
+        ///
+        /// Args:
+        ///   - writer: The output stream to write TTLV data to
+        ///
+        /// Returns:
+        ///   The total number of bytes written including headers and padding
+        ///
+        /// Errors:
+        ///   Returns an error if writing fails or the value type is unsupported
         pub fn encode(self: *@This(), writer: anytype) !usize {
             try writer.writeInt(u24, @intFromEnum(self.tag), .big);
 
@@ -487,10 +657,30 @@ pub fn CustomTtlv(T: type) type {
             return TTLV_HEADER_LENGTH + paddedLen(len);
         }
 
+        /// Returns the total encoded length of this TTLV element in bytes.
+        ///
+        /// Includes the 8-byte header (tag + type + length) plus the padded value length.
+        /// For structures, this includes the total length of all nested elements.
+        ///
+        /// Returns:
+        ///   The total encoded size in bytes
         pub fn length(self: Self) usize {
             return TTLV_HEADER_LENGTH + paddedLen(self.value.length());
         }
 
+        /// Navigates to a nested TTLV element using a path of tags.
+        ///
+        /// Traverses the TTLV structure following the specified tag path.
+        /// Supports both single tags and arrays of tags for deep navigation.
+        ///
+        /// Args:
+        ///   - tags: Single tag or array of tags defining the path to navigate
+        ///
+        /// Returns:
+        ///   A pointer to the TTLV element at the specified path
+        ///
+        /// Errors:
+        ///   Returns an error if the path is not found or type mismatch occurs
         pub fn path(self: Self, comptime tags: anytype) !*Self {
             if (self.value != .structure) {
                 return error.TypeMismatch;
@@ -521,6 +711,20 @@ pub fn CustomTtlv(T: type) type {
             return error.ChildNotFound;
         }
 
+        /// Returns a list of all TTLV elements matching the specified tag path.
+        ///
+        /// Collects all child elements that match the final tag in the path.
+        /// Useful for finding multiple elements with the same tag within a structure.
+        ///
+        /// Args:
+        ///   - allocator: The allocator to use for the returned list
+        ///   - tags: Single tag or array of tags defining the path to search
+        ///
+        /// Returns:
+        ///   An ArrayList containing pointers to all matching TTLV elements
+        ///
+        /// Errors:
+        ///   Returns an error if memory allocation fails or type mismatch occurs
         pub fn list(self: Self, allocator: Allocator, comptime tags: anytype) !std.ArrayList(*Self) {
             const is_single_tag = switch (@TypeOf(tags)) {
                 T => true,
@@ -551,6 +755,13 @@ pub fn CustomTtlv(T: type) type {
             }
         }
 
+        /// Prints a human-readable representation of this TTLV structure to stdout.
+        ///
+        /// Recursively displays the entire TTLV tree with proper indentation
+        /// showing tags, types, and values for debugging purposes.
+        ///
+        /// Errors:
+        ///   Returns an error if printing fails
         pub fn dump(self: Self) !void {
             return try self.dumpRecursive(0);
         }
@@ -595,18 +806,49 @@ pub fn CustomTtlv(T: type) type {
             }
         }
 
+        /// Returns an iterator for traversing direct children of this TTLV structure.
+        ///
+        /// Only iterates through immediate children, does not recurse into nested structures.
+        /// The TTLV element must be a structure type.
+        ///
+        /// Returns:
+        ///   An Iterator instance for this TTLV's children
         pub fn iterate(self: *const Self) Iterator {
             return Iterator.init(self);
         }
 
+        /// Returns a walker for recursively traversing the entire TTLV tree.
+        ///
+        /// Performs a depth-first traversal of all nested structures and their children.
+        /// The walker manages its own memory for the traversal stack.
+        ///
+        /// Args:
+        ///   - allocator: The allocator to use for the walker's internal stack
+        ///
+        /// Returns:
+        ///   A Walker instance for recursive traversal
+        ///
+        /// Errors:
+        ///   Returns an error if memory allocation for the stack fails
         pub fn walk(self: *const Self, allocator: Allocator) !Walker {
             return try Walker.init(allocator, self);
         }
 
+        /// Iterator for traversing direct children of a TTLV structure.
+        ///
+        /// Provides sequential access to child elements without recursing into
+        /// nested structures. Use Walker for recursive traversal.
         pub const Iterator = struct {
             index: usize,
             ttlv: *const Self,
 
+            /// Creates a new iterator for the given TTLV structure.
+            ///
+            /// Args:
+            ///   - ttlv: The TTLV structure to iterate over
+            ///
+            /// Returns:
+            ///   A new Iterator instance positioned at the beginning
             pub fn init(ttlv: *const Self) Iterator {
                 return Iterator{
                     .index = 0,
@@ -614,6 +856,10 @@ pub fn CustomTtlv(T: type) type {
                 };
             }
 
+            /// Returns the next child element and advances the iterator.
+            ///
+            /// Returns:
+            ///   The next TTLV child element, or null if at the end
             pub fn next(self: *Iterator) ?*Self {
                 const item = self.peek();
 
@@ -622,6 +868,10 @@ pub fn CustomTtlv(T: type) type {
                 return item;
             }
 
+            /// Returns the current child element without advancing the iterator.
+            ///
+            /// Returns:
+            ///   The current TTLV child element, or null if at the end
             pub fn peek(self: *Iterator) ?*Self {
                 const s = self.ttlv.value.structure;
                 if (self.index >= s.items.len) return null;
@@ -631,11 +881,16 @@ pub fn CustomTtlv(T: type) type {
                 return item;
             }
 
+            /// Resets the iterator to the beginning.
             pub fn reset(self: *Iterator) void {
                 self.index = 0;
             }
         };
 
+        /// Walker for recursive depth-first traversal of TTLV structures.
+        ///
+        /// Traverses the entire TTLV tree, visiting all nested structures and their
+        /// children in depth-first order. Manages its own stack for traversal state.
         pub const Walker = struct {
             const StackItem = struct {
                 root: ?*Self = null,
@@ -647,6 +902,17 @@ pub fn CustomTtlv(T: type) type {
             allocator: Allocator,
             stack: std.ArrayListUnmanaged(StackItem),
 
+            /// Creates a new walker for the given TTLV structure.
+            ///
+            /// Args:
+            ///   - allocator: The allocator to use for the traversal stack
+            ///   - ttlv: The root TTLV structure to walk
+            ///
+            /// Returns:
+            ///   A new Walker instance ready for traversal
+            ///
+            /// Errors:
+            ///   Returns an error if memory allocation for the stack fails
             pub fn init(allocator: Allocator, ttlv: *const Self) !Walker {
                 var self = Walker{
                     .ttlv = ttlv,
@@ -662,6 +928,17 @@ pub fn CustomTtlv(T: type) type {
                 return self;
             }
 
+            /// Returns the next TTLV element in depth-first order.
+            ///
+            /// Visits all leaf nodes (non-structure elements) and structure nodes
+            /// in depth-first traversal order. Structure nodes are returned after
+            /// all their children have been visited.
+            ///
+            /// Returns:
+            ///   The next TTLV element, or null when traversal is complete
+            ///
+            /// Errors:
+            ///   Returns an error if stack allocation fails during traversal
             pub fn next(self: *Walker) !?*Self {
                 while (self.stack.items.len > 0) {
                     var top = &self.stack.items[self.stack.items.len - 1];
@@ -685,6 +962,10 @@ pub fn CustomTtlv(T: type) type {
                 return null;
             }
 
+            /// Cleans up the walker's internal resources.
+            ///
+            /// Must be called when the walker is no longer needed to free
+            /// the memory used by the traversal stack.
             pub fn deinit(self: *Walker) void {
                 self.stack.deinit(self.allocator);
             }
@@ -692,10 +973,24 @@ pub fn CustomTtlv(T: type) type {
     };
 }
 
+/// Options for extending the default KMIP tag enumeration with custom tags.
 pub const ExtendOptions = struct {
+    /// Whether the extended enumeration should be exhaustive (no catch-all variant)
     is_exhaustive: bool = false,
 };
 
+/// Extends the default KMIP TagType enumeration with custom tags.
+///
+/// Creates a new TTLV type that includes all standard KMIP tags plus
+/// additional custom tags defined in the Extensions enum. This allows
+/// for protocol extensions while maintaining compatibility with standard KMIP.
+///
+/// Args:
+///   - Extensions: An enum type containing additional tag definitions
+///   - options: Configuration options for the extended enumeration
+///
+/// Returns:
+///   A TTLV type with the extended tag enumeration
 pub fn extendDefault(comptime Extensions: type, options: ExtendOptions) type {
     const default_type_info = @typeInfo(enums.TagType).@"enum";
     const default_fields = default_type_info.fields;
@@ -714,6 +1009,10 @@ pub fn extendDefault(comptime Extensions: type, options: ExtendOptions) type {
     return CustomTtlv(ExtendedTagType);
 }
 
+/// Standard TTLV type using the KMIP TagType enumeration.
+///
+/// This is the main TTLV type for working with standard KMIP protocol
+/// messages. It includes all official KMIP tags and value types.
 pub const Ttlv = CustomTtlv(enums.TagType);
 
 test "path" {
