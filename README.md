@@ -1,10 +1,10 @@
 # ttlv-z
 
-A Zig library for TTLV (Tag-Type-Length-Value) encoding and decoding, implementing the KMIP (Key Management Interoperability Protocol) specification.
+A Zig library for TTLV (Tag-Type-Length-Value) encoding and decoding, implementing the [KMIP](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=kmip) specification.
 
 ## Overview
 
-ttlv-z provides a complete implementation of the TTLV binary format used in KMIP and other systems. TTLV is a structured binary encoding where each value is preceded by a tag (identifier), type (data type), and length (size in bytes). This library supports all KMIP value types and provides efficient tools for working with nested structures.
+ttlv-z provides a complete implementation of the TTLV binary format used in [KMIP](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=kmip) and other systems. TTLV is a structured binary encoding where each value is preceded by a tag (identifier), type (data type), and length (size in bytes).
 
 ## Features
 
@@ -211,14 +211,7 @@ The library supports all KMIP value types:
 
 ## KMIP Tag Support
 
-The library includes all official KMIP tags from versions 1.0 through 3.0, including:
-
-- Core protocol tags (requestMessage, responseMessage, etc.)
-- Cryptographic objects (key, certificate, secretData, etc.)
-- Attributes (cryptographicAlgorithm, cryptographicLength, etc.)
-- Operations (create, get, destroy, etc.)
-- Authentication and credential tags
-- Extension and vendor-specific tags
+The library includes all official KMIP tags from versions 1.0 through 3.0.
 
 ## Requirements
 
@@ -264,5 +257,4 @@ Contributions are welcome! Please ensure all tests pass and follow the existing 
 
 ## References
 
-- [KMIP Specification](https://docs.oasis-open.org/kmip/spec/v1.0/kmip-spec-1.0.html)
-- [TTLV Encoding Format](https://docs.oasis-open.org/kmip/spec/v1.0/os/kmip-spec-1.0-os.html#_Toc262581236)
+- [KMIP Specification](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=kmip)
