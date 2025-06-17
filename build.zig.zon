@@ -1,0 +1,20 @@
+.{
+    .name = .ttlv,
+    .fingerprint = 0xe6cfd8f9fa86e6ac,
+    .version = "0.0.0",
+    .dependencies = .{
+        .temp = .{
+            .url = "git+https://github.com/abhinav/temp.zig#382a711f253d54a88f222650e6c03b62411373c6",
+            .hash = "temp-0.3.0-Ogl1FSSBAAB2WXv3QbTYO3NYfVFoYTBkZsVK3MYvbxFE",
+        },
+        .conduit = .{
+            .url = "git+https://github.com/byterix-labs/conduit-z.git#c02fdbcc2cdf9c8708e9cba9a3e1146df5ea8ec6",
+            .hash = "conduit-0.0.1-u75GV5JGAABEEvXgmwciInpR31Lz2YRnC3Xzn6FPZt8F",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
