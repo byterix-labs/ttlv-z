@@ -25,6 +25,8 @@ jobs:
         uses: jdx/mise-action@v2
         with:
           cache: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build documentation
         run: zig build docs

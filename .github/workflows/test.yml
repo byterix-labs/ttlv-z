@@ -16,6 +16,8 @@ jobs:
         uses: jdx/mise-action@v2
         with:
           cache: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run tests
         run: zig build test
@@ -35,6 +37,8 @@ jobs:
         uses: jdx/mise-action@v2
         with:
           cache: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run tests
         run: zig build test
@@ -48,6 +52,8 @@ jobs:
         uses: jdx/mise-action@v2
         with:
           cache: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check formatting
         run: zig fmt --check src/
