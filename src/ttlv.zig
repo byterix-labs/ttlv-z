@@ -298,6 +298,16 @@ pub fn CustomTtlv(T: type) type {
             try target.append(child);
         }
 
+        pub fn valueAtPath(self: *Self, comptime tag_path: anytype, comptime value_type: ValueType) !std.meta.TagPayload(Value, value_type) {
+            const target = try self.path(tag_path);
+
+            if (target.value != value_type) {
+                return error.MismatchedValueType;
+            }
+
+            return @field(target.value, @tagName(value_type));
+        }
+
         /// Casts the TTLV value to the specified type.
         ///
         /// Supports casting integer types, enumerations, and other compatible types.
