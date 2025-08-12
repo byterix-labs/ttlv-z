@@ -293,7 +293,7 @@ pub fn CustomTtlv(T: type) type {
         ///
         /// Errors:
         ///   Returns an error if the path is not found or append fails
-        pub fn appendToPath(self: *Self, tag_path: anytype, child: Self) !void {
+        pub fn appendToPath(self: *Self, comptime tag_path: anytype, child: Self) !void {
             var target = try self.path(tag_path);
             try target.append(child);
         }
