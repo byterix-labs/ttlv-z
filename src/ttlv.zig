@@ -1192,3 +1192,70 @@ test "walker" {
 
     try testing.expectEqual(6, count);
 }
+
+test "appendToPath" {
+    var requestMessage = blk: {
+        var protocolVersion = try Ttlv.structure(testing.allocator, .protocolVersion);
+
+        const protocolVersionMajor = Ttlv.init(.protocolVersionMajor, .{ .integer = 3 }, .{});
+        const protocolVersionMinor = Ttlv.init(.protocolVersionMinor, .{ .integer = 0 }, .{});
+
+        try protocolVersion.append(protocolVersionMajor);
+        try protocolVersion.append(protocolVersionMinor);
+
+        var requestHeader = try Ttlv.structure(testing.allocator, .requestHeader);
+        try requestHeader.append(protocolVersion);
+
+        const requestPayload = try Ttlv.structure(testing.allocator, .requestPayload);
+
+        var batchItem = try Ttlv.structure(testing.allocator, .batchItem);
+        try batchItem.append(requestPayload);
+
+        var requestMessage = try Ttlv.structure(testing.allocator, .requestMessage);
+        try requestMessage.append(requestHeader);
+        try requestMessage.append(batchItem);
+
+        break :blk requestMessage;
+    };
+    defer requestMessage.deinit();
+
+    const attribute = try Ttlv.structure(testing.allocator, TagType.attribute);
+
+    // this should error
+    try testing.expectError(error.ChildNotFound, requestMessage.path(&[_]TagType{ .batchItem, .requestPayload, .attribute }));
+
+    try requestMessage.appendToPath(&[_]TagType{ .batchItem, .requestPayload }, attribute);
+
+    // this should not
+    _ = try requestMessage.path(&[_]TagType{ .batchItem, .requestPayload, .attribute });
+}
+
+test "valueAtPath" {
+    var requestMessage = blk: {
+        var protocolVersion = try Ttlv.structure(testing.allocator, .protocolVersion);
+
+        const protocolVersionMajor = Ttlv.init(.protocolVersionMajor, .{ .integer = 3 }, .{});
+        const protocolVersionMinor = Ttlv.init(.protocolVersionMinor, .{ .integer = 0 }, .{});
+
+        try protocolVersion.append(protocolVersionMajor);
+        try protocolVersion.append(protocolVersionMinor);
+
+        var requestHeader = try Ttlv.structure(testing.allocator, .requestHeader);
+        try requestHeader.append(protocolVersion);
+
+        const requestPayload = try Ttlv.structure(testing.allocator, .requestPayload);
+
+        var batchItem = try Ttlv.structure(testing.allocator, .batchItem);
+        try batchItem.append(requestPayload);
+
+        var requestMessage = try Ttlv.structure(testing.allocator, .requestMessage);
+        try requestMessage.append(requestHeader);
+        try requestMessage.append(batchItem);
+
+        break :blk requestMessage;
+    };
+    defer requestMessage.deinit();
+
+    const value = try requestMessage.valueAtPath(&[_]TagType{ .requestHeader, .protocolVersion, .protocolVersionMajor }, .integer);
+    try testing.expectEqual(@as(u8, 3), value);
+}
